@@ -51,7 +51,7 @@ mod.setting(
 mod.setting(
     "ocr_connect_tracker",
     type=bool,
-    default=True,
+    default=False,
     desc="If true, automatically connect the eye tracker at startup.",
 )
 mod.setting(
@@ -111,7 +111,7 @@ mod.setting(
 mod.setting(
     "ocr_behavior_when_no_eye_tracker",
     type=Literal["MAIN_SCREEN", "ACTIVE_WINDOW"],
-    default="MAIN_SCREEN",
+    default="ACTIVE_WINDOW",
     desc="Region to OCR when no data from the eye tracker",
 )
 
@@ -119,6 +119,9 @@ mod.tag(
     "gaze_ocr_disambiguation",
     desc="Tag for disambiguating between different onscreen matches.",
 )
+mod.tag(
+		"gaze_ocr_commands_disabled",
+		desc="Tag to disable gaze ocr spoken commands")
 mod.list("ocr_actions", desc="Actions to perform on selected text.")
 mod.list(
     "ocr_common_actions", desc="Common actions that can be used without 'seen'/'scene'."
