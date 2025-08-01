@@ -120,8 +120,10 @@ mod.tag(
     desc="Tag for disambiguating between different onscreen matches.",
 )
 mod.tag(
-		"gaze_ocr_commands_disabled",
-		desc="Tag to disable gaze ocr spoken commands")
+    "gaze_ocr_commands_disabled",
+    desc="Tag to disable gaze ocr spoken commands."
+)
+
 mod.list("ocr_actions", desc="Actions to perform on selected text.")
 mod.list(
     "ocr_common_actions", desc="Common actions that can be used without 'seen'/'scene'."
