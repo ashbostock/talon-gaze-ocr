@@ -57,7 +57,10 @@ not tag: user.gaze_ocr_commands_disabled
 # Debugging commands.
 ocr show [text]: user.show_ocr_overlay("text")
 ocr show [text] near <user.timestamped_prose>: user.show_ocr_overlay("text", timestamped_prose)
+ocr show [text] last: user.show_ocr_overlay("text", types.none(), false)
 ocr show boxes: user.show_ocr_overlay("boxes")
+ocr show boxes near <user.timestamped_prose>: user.show_ocr_overlay("boxes", timestamped_prose)
+ocr show boxes last: user.show_ocr_overlay("boxes", types.none(), false)
 
 # Commands that operate on text nearby where you're looking.
 # Example: "hover seen apple" to hover the cursor over the word "apple".
