@@ -90,10 +90,23 @@ class EyeTrackerFallback(Enum):
     ACTIVE_WINDOW = auto()
 
 
-# Anything with .left/.right/.top/.bottom int attributes works as gaze bounds.
-# Controller doesn't import the concrete BoundingBox to avoid coupling the
-# generic controller to the Talon adapter; callers produce the bounds.
-BoundingBoxLike = Any
+@dataclass
+class BoundingBox:
+    left: int
+    right: int
+    top: int
+    bottom: int
+
+    def contains(self, other: "BoundingBox") -> bool:
+        return (
+            self.left <= other.left
+            and self.top <= other.top
+            and self.right >= other.right
+            and self.bottom >= other.bottom
+        )
+
+    def to_tuple(self) -> tuple[int, int, int, int]:
+        return (self.left, self.top, self.right, self.bottom)
 
 
 class OcrCache:
@@ -103,23 +116,28 @@ class OcrCache:
         fallback_when_no_eye_tracker: EyeTrackerFallback = EyeTrackerFallback.MAIN_SCREEN,
     ):
         self.ocr_reader = ocr_reader
-        self._last_bounding_box: Optional[tuple[int, int, int, int]] = None
+        self._last_bounding_box: Optional[BoundingBox] = None
         self._last_screen_contents = None
         self.fallback_when_no_eye_tracker = fallback_when_no_eye_tracker
 
+    def invalidate(self):
+        """Discard cached OCR result. Call at utterance boundaries."""
+        self._last_bounding_box = None
+        self._last_screen_contents = None
+
     def read(
         self,
-        bounding_box: Optional[tuple[int, int, int, int]],
+        bounding_box: Optional[BoundingBox],
     ):
         if (
             self._last_screen_contents is not None
             and bounding_box is not None
             and self._last_bounding_box is not None
-            and _bounding_box_contains(self._last_bounding_box, bounding_box)
+            and self._last_bounding_box.contains(bounding_box)
         ):
             # Bounding box is a subset of the cached one. Crop and return without
             # updating the cache so multiple subsets can reuse the same read.
-            return self._last_screen_contents.cropped(bounding_box)
+            return self._last_screen_contents.cropped(bounding_box.to_tuple())
         if self._last_screen_contents is not None:
             logging.warning(
                 "OCR cache miss with populated cache: requested_bounds=%r, "
@@ -129,24 +147,15 @@ class OcrCache:
             )
         self._last_bounding_box = bounding_box
         if bounding_box:
-            self._last_screen_contents = self.ocr_reader.read_screen(bounding_box)
+            self._last_screen_contents = self.ocr_reader.read_screen(
+                bounding_box.to_tuple()
+            )
         else:
             if self.fallback_when_no_eye_tracker == EyeTrackerFallback.ACTIVE_WINDOW:
                 self._last_screen_contents = self.ocr_reader.read_current_window()
             else:
                 self._last_screen_contents = self.ocr_reader.read_screen()
         return self._last_screen_contents
-
-
-def _bounding_box_contains(
-    outer: tuple[int, int, int, int], inner: tuple[int, int, int, int]
-) -> bool:
-    return (
-        outer[0] <= inner[0]
-        and outer[1] <= inner[1]
-        and outer[2] >= inner[2]
-        and outer[3] >= inner[3]
-    )
 
 
 class Controller:
@@ -186,6 +195,11 @@ class Controller:
         )
         self.fallback_when_no_eye_tracker = fallback_when_no_eye_tracker
 
+    def invalidate_ocr_cache(self):
+        """Discard any cached OCR result. Call at utterance boundaries to prevent
+        a new command from reusing OCR captured during a previous utterance."""
+        self._ocr_cache.invalidate()
+
     def shutdown(self, wait=True):
         """Retained for compatibility; OCR execution is synchronous."""
 
@@ -214,7 +228,7 @@ class Controller:
     def read_nearby(
         self,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
     ) -> ScreenContents:
         """Perform OCR nearby the gaze point in the current thread.
 
@@ -234,11 +248,11 @@ class Controller:
                 else None
             )
         if gaze_bounds is not None:
-            ocr_bounds = (
-                gaze_bounds.left - self.gaze_box_padding,
-                gaze_bounds.top - self.gaze_box_padding,
-                gaze_bounds.right + self.gaze_box_padding,
-                gaze_bounds.bottom + self.gaze_box_padding,
+            ocr_bounds = BoundingBox(
+                left=gaze_bounds.left - self.gaze_box_padding,
+                top=gaze_bounds.top - self.gaze_box_padding,
+                right=gaze_bounds.right + self.gaze_box_padding,
+                bottom=gaze_bounds.bottom + self.gaze_box_padding,
             )
             self._latest_screen_contents = self._ocr_cache.read(ocr_bounds)
             return self._latest_screen_contents
@@ -270,7 +284,7 @@ class Controller:
         words: str,
         cursor_position: str = "middle",
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
     ) -> Optional[tuple[int, int]]:
         """Move the mouse cursor nearby the specified word or words.
@@ -301,7 +315,7 @@ class Controller:
         disambiguate: bool,
         cursor_position: str = "middle",
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
     ) -> Generator[Sequence[CursorLocation], CursorLocation, Optional[tuple[int, int]]]:
         """Same as move_cursor_to_words, except it supports disambiguation through a generator.
@@ -359,7 +373,7 @@ class Controller:
         filter_location_function: Optional[WordLocationsPredicate] = None,
         include_whitespace: bool = False,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
     ) -> Optional[CursorLocation]:
         """Move the text cursor nearby the specified word or phrase.
@@ -397,7 +411,7 @@ class Controller:
         filter_location_function: Optional[WordLocationsPredicate] = None,
         include_whitespace: bool = False,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         hold_shift: bool = False,
         selection_position: Optional[SelectionPosition] = None,
@@ -453,7 +467,7 @@ class Controller:
         cursor_position: str = "middle",
         filter_location_function: Optional[WordLocationsPredicate] = None,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         hold_shift: bool = False,
     ) -> tuple[Optional[CursorLocation], int]:
@@ -479,7 +493,7 @@ class Controller:
         cursor_position: str = "middle",
         filter_location_function: Optional[WordLocationsPredicate] = None,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         hold_shift: bool = False,
     ) -> Generator[
@@ -527,7 +541,7 @@ class Controller:
         cursor_position: str = "middle",
         filter_location_function: Optional[WordLocationsPredicate] = None,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         hold_shift: bool = False,
     ) -> tuple[Optional[CursorLocation], int]:
@@ -553,7 +567,7 @@ class Controller:
         cursor_position: str = "middle",
         filter_location_function: Optional[WordLocationsPredicate] = None,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         hold_shift: bool = False,
     ) -> Generator[
@@ -600,7 +614,7 @@ class Controller:
         words: str,
         disambiguate: bool,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
     ) -> Generator[Sequence[CursorLocation], CursorLocation, Optional[tuple[int, int]]]:
         """Finds onscreen text that matches the start and/or end of the provided words,
@@ -701,8 +715,8 @@ class Controller:
         for_deletion: bool = False,
         start_time_range: Optional[tuple[float, float]] = None,
         end_time_range: Optional[tuple[float, float]] = None,
-        start_gaze_bounds: Optional[BoundingBoxLike] = None,
-        end_gaze_bounds: Optional[BoundingBoxLike] = None,
+        start_gaze_bounds: Optional[BoundingBox] = None,
+        end_gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         after_start: bool = False,
         before_end: bool = False,
@@ -748,8 +762,8 @@ class Controller:
         for_deletion: bool = False,
         start_time_range: Optional[tuple[float, float]] = None,
         end_time_range: Optional[tuple[float, float]] = None,
-        start_gaze_bounds: Optional[BoundingBoxLike] = None,
-        end_gaze_bounds: Optional[BoundingBoxLike] = None,
+        start_gaze_bounds: Optional[BoundingBox] = None,
+        end_gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         after_start: bool = False,
         before_end: bool = False,
@@ -821,7 +835,7 @@ class Controller:
         self,
         words: str,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
     ) -> Optional[tuple[int, int]]:
         """Selects onscreen text that matches the beginning and/or end of the provided
@@ -842,7 +856,7 @@ class Controller:
         words: str,
         disambiguate: bool,
         time_range: Optional[tuple[float, float]] = None,
-        gaze_bounds: Optional[BoundingBoxLike] = None,
+        gaze_bounds: Optional[BoundingBox] = None,
         click_offset_right: Callable[[], int] | int = 0,
         select_pause_seconds: Callable[[], float] | float = 0.01,
     ) -> Generator[Sequence[CursorLocation], CursorLocation, Optional[tuple[int, int]]]:
