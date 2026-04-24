@@ -1,6 +1,7 @@
 """Tests for OCR cache behavior."""
 
 import logging
+from dataclasses import dataclass
 from typing import cast
 
 import screen_ocr
@@ -39,29 +40,37 @@ class FakeReader:
         return _contents((20, 30, 120, 150))
 
 
+@dataclass
+class Bounds:
+    left: int
+    right: int
+    top: int
+    bottom: int
+
+
 def _cache(reader: FakeReader) -> OcrCache:
     return OcrCache(cast(screen_ocr.Reader, reader))
 
 
-def test_subset_time_range_reuses_cache():
+def test_subset_bounding_box_reuses_cache():
     reader = FakeReader()
     cache = _cache(reader)
 
-    first = cache.read((1, 4), None)
-    second = cache.read((2, 3), None)
+    cache.read((0, 0, 100, 100))
+    second = cache.read((10, 10, 20, 20))
 
-    assert second is first
-    assert reader.read_screen_calls == [None]
+    assert second.bounding_box == (10, 10, 20, 20)
+    assert reader.read_screen_calls == [(0, 0, 100, 100)]
 
 
-def test_non_subset_time_range_misses_cache():
+def test_non_subset_bounding_box_misses_cache():
     reader = FakeReader()
     cache = _cache(reader)
 
-    cache.read((1, 2), None)
-    cache.read((3, 4), None)
+    cache.read((0, 0, 20, 20))
+    cache.read((30, 30, 40, 40))
 
-    assert reader.read_screen_calls == [None, None]
+    assert reader.read_screen_calls == [(0, 0, 20, 20), (30, 30, 40, 40)]
 
 
 def test_active_window_fallback():
@@ -71,7 +80,7 @@ def test_active_window_fallback():
         fallback_when_no_eye_tracker=EyeTrackerFallback.ACTIVE_WINDOW,
     )
 
-    cache.read((1, 2), None)
+    cache.read(None)
 
     assert reader.read_current_window_calls == 1
     assert reader.read_screen_calls == []
@@ -82,7 +91,7 @@ def test_empty_cache_miss_does_not_warn(caplog):
     cache = _cache(reader)
 
     with caplog.at_level(logging.WARNING):
-        cache.read((1, 2), None)
+        cache.read(None)
 
     assert not caplog.records
 
@@ -90,10 +99,10 @@ def test_empty_cache_miss_does_not_warn(caplog):
 def test_cache_hit_does_not_warn(caplog):
     reader = FakeReader()
     cache = _cache(reader)
-    cache.read((1, 4), None)
+    cache.read((0, 0, 100, 100))
 
     with caplog.at_level(logging.WARNING):
-        cache.read((2, 3), None)
+        cache.read((10, 10, 20, 20))
 
     assert not caplog.records
 
@@ -101,10 +110,10 @@ def test_cache_hit_does_not_warn(caplog):
 def test_populated_cache_miss_warns(caplog):
     reader = FakeReader()
     cache = _cache(reader)
-    cache.read((1, 2), None)
+    cache.read((0, 0, 20, 20))
 
     with caplog.at_level(logging.WARNING):
-        cache.read((3, 4), None)
+        cache.read((30, 30, 40, 40))
 
     assert len(caplog.records) == 1
     assert "OCR cache miss with populated cache" in caplog.records[0].message
@@ -122,11 +131,12 @@ def test_controller_start_reading_is_noop_and_reads_reuse_ocr_cache():
         controller.start_reading_nearby()
         assert reader.read_screen_calls == []
 
-        first = controller.read_nearby((1, 4))
-        second = controller.read_nearby((2, 3))
+        first = controller.read_nearby(gaze_bounds=Bounds(0, 100, 0, 100))
+        second = controller.read_nearby(gaze_bounds=Bounds(10, 20, 10, 20))
 
-        assert second is first
-        assert controller.latest_screen_contents() is first
-        assert reader.read_screen_calls == [None]
+        assert second.bounding_box == (-90, -90, 120, 120)
+        assert controller.latest_screen_contents() is second
+        assert first is not second
+        assert reader.read_screen_calls == [(-100, -100, 200, 200)]
     finally:
         controller.shutdown()
