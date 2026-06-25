@@ -37,8 +37,6 @@ def point_to_pixel_gaze(point) -> Optional[GazePoint]:
     absolute-pixel GazePoint on the main screen."""
     if point is None:
         return None
-    if point.x == 0 and point.y == 0:
-        return None
     screen = ui.main_screen().rect
     x = int(screen.x + point.x * screen.width)
     y = int(screen.y + point.y * screen.height)
