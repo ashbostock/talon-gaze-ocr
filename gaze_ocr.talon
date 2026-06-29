@@ -1,8 +1,10 @@
 mode: command
+not tag: user.gaze_ocr_commands_disabled
 # Optional: to use these commands in dictation mode, either use "mixed mode" (enable both dictation
 # and command mode simultaneously) or define a new dictation_command mode and enable it alongside
 # dictation mode. The following line will have no effect if dictation_command is not defined.
 mode: user.dictation_command
+not tag: user.gaze_ocr_commands_disabled
 -
 # Commands that operate wherever you are looking.
 # Example: "eye hover" to hover the cursor over where you're looking.

@@ -96,7 +96,7 @@ mod.setting(
 mod.setting(
     "ocr_connect_tracker",
     type=bool,
-    default=True,
+    default=False,
     desc="If true, automatically connect the eye tracker at startup.",
 )
 mod.setting(
@@ -168,7 +168,7 @@ mod.setting(
 mod.setting(
     "ocr_behavior_when_no_eye_tracker",
     type=Literal["MAIN_SCREEN", "ACTIVE_WINDOW"],
-    default="MAIN_SCREEN",
+    default="ACTIVE_WINDOW",
     desc="Region to OCR when no data from the eye tracker",
 )
 mod.setting(
@@ -226,6 +226,10 @@ mod.setting(
     desc="Wheel units for initial scroll probe to detect viewport and calibrate scroll ratio. Higher values increase robustness in apps with discrete scrolling amounts, but may overshoot small scrolls.",
 )
 
+mod.tag(
+    "gaze_ocr_commands_disabled",
+    desc="Tag to disable gaze ocr spoken commands."
+)
 mod.tag(
     "gaze_ocr_disambiguation",
     desc="Tag for disambiguating between different onscreen matches.",
