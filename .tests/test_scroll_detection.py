@@ -12,7 +12,7 @@ import pytest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from conftest import create_scrolled_image, create_text_pattern_image
+from synthetic_images import create_scrolled_image, create_text_pattern_image
 
 from scroll_detection import BoundingBox, detect_scroll
 
