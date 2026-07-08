@@ -743,17 +743,18 @@ def _clamp_rect_to_screen(r: rect.Rect) -> rect.Rect:
 
     Canvases that span multiple screens with different DPI/scale factors
     can disappear on macOS. This finds the best screen and clamps the rect
-    to stay within its bounds.
+    to stay within its bounds. If the rect overlaps no screen, returns it
+    unchanged since clamping would produce a degenerate rect.
     """
-    best_screen = max(
-        screen.screens(),
-        key=lambda s: (
-            max(0, min(r.x + r.width, s.rect.x + s.rect.width) - max(r.x, s.rect.x))
-            * max(0, min(r.y + r.height, s.rect.y + s.rect.height) - max(r.y, s.rect.y))
-        ),
-        default=None,
-    )
-    if best_screen is None:
+
+    def overlap_area(s) -> float:
+        return max(
+            0, min(r.x + r.width, s.rect.x + s.rect.width) - max(r.x, s.rect.x)
+        ) * max(0, min(r.y + r.height, s.rect.y + s.rect.height) - max(r.y, s.rect.y))
+
+    best_screen = max(screen.screens(), key=overlap_area, default=None)
+    if best_screen is None or overlap_area(best_screen) == 0:
+        logging.warning(f"Rect does not overlap any screen; not clamping: {r}")
         return r
     sr = best_screen.rect
     clamped = r.copy()
@@ -921,6 +922,13 @@ def begin_generator(generator):
         pass
 
 
+def _raise_if_not_found(result, text: TimestampedText):
+    """If a controller generator found no match, show the OCR overlay and raise."""
+    if not result:
+        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
+        raise RuntimeError(f'Unable to find: "{text}"')
+
+
 def move_cursor_to_word_generator(text: TimestampedText, disambiguate: bool = True):
     result = yield from gaze_ocr_controller.move_cursor_to_words_generator(
         text.text,
@@ -928,9 +936,7 @@ def move_cursor_to_word_generator(text: TimestampedText, disambiguate: bool = Tr
         time_range=(text.start, text.end),
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def move_text_cursor_to_word_generator(
@@ -946,9 +952,7 @@ def move_text_cursor_to_word_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def move_text_cursor_to_longest_prefix_generator(
@@ -965,9 +969,7 @@ def move_text_cursor_to_longest_prefix_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not locations:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(locations, text)
     return prefix_length
 
 
@@ -976,7 +978,7 @@ def move_text_cursor_to_longest_suffix_generator(
 ):
     (
         locations,
-        prefix_length,
+        suffix_length,
     ) = yield from gaze_ocr_controller.move_text_cursor_to_longest_suffix_generator(
         text.text,
         disambiguate=True,
@@ -985,10 +987,8 @@ def move_text_cursor_to_longest_suffix_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not locations:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
-    return prefix_length
+    _raise_if_not_found(locations, text)
+    return suffix_length
 
 
 def move_text_cursor_to_difference(text: TimestampedText):
@@ -998,9 +998,7 @@ def move_text_cursor_to_difference(text: TimestampedText):
         time_range=(text.start, text.end),
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
     return result
 
 
@@ -1040,9 +1038,7 @@ def select_matching_text_generator(text: TimestampedText):
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         select_pause_seconds=lambda: settings.get("user.ocr_select_pause_seconds"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def select_text_range_generator(
@@ -1425,6 +1421,9 @@ class GazeOcrActions:
             assert not disambiguation_generator
             assert not disambiguation_canvas
             raise RuntimeError("Disambiguation not active")
+        if not 1 <= index <= len(ambiguous_matches):
+            app.notify(f"Invalid choice: {index}. Choose 1-{len(ambiguous_matches)}.")
+            return
         ctx.tags = []
         disambiguation_canvas.close()
         disambiguation_canvas = None
@@ -1837,7 +1836,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                print(e)
+                logging.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 
@@ -1854,7 +1853,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                print(e)
+                logging.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 

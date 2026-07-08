@@ -32,7 +32,7 @@ from scroll_detection import (
 )
 
 # Default parameters matching production scroll_detection.py
-DEFAULT_MIN_SCROLL_DISTANCE = 20
+DEFAULT_MIN_SCROLL_DISTANCE = 1
 DEFAULT_MIN_VIEWPORT_HEIGHT = 150
 DEFAULT_MIN_VIEWPORT_WIDTH = 150
 DEFAULT_PIXEL_MATCH_TOLERANCE = 20
@@ -786,8 +786,8 @@ def render_strip_correlation_heatmap(ax, debug_data):
         return
 
     # Transpose so x-axis is scroll distance, y-axis is strip index
-    # Only show the valid range (skip first 20 pixels which are below MIN_SCROLL_DISTANCE)
-    min_d = 20
+    # Only show the valid range (skip distances below MIN_SCROLL_DISTANCE)
+    min_d = debug_data.params.get("min_scroll_distance", DEFAULT_MIN_SCROLL_DISTANCE)
     heatmap_data = strip_corr[:, min_d:]
 
     im = ax.imshow(
