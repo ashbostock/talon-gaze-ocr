@@ -34,12 +34,16 @@ def rect_to_pixel_bounding_box(rect) -> Optional[BoundingBox]:
 
 def point_to_pixel_gaze(point) -> Optional[GazePoint]:
     """Convert a normalized skia.Point from actions.word.gaze into an
-    absolute-pixel GazePoint on the main screen."""
+    absolute-pixel GazePoint on the main screen, clamped to its bounds."""
     if point is None:
         return None
     screen = ui.main_screen().rect
     x = int(screen.x + point.x * screen.width)
     y = int(screen.y + point.y * screen.height)
+    # Gaze data can extend slightly past the screen edges; clamp so that
+    # commands operating on the gaze point stay onscreen.
+    x = max(int(screen.x), min(x, int(screen.x + screen.width) - 1))
+    y = max(int(screen.y), min(y, int(screen.y + screen.height) - 1))
     return GazePoint(x=x, y=y)
 
 
