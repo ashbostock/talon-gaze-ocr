@@ -28,14 +28,24 @@ def _word_texts(contents: screen_ocr.ScreenContents) -> list[str]:
 
 
 class FakeReader:
+    SCREEN = (0, 0, 100, 100)
+
     def __init__(self):
         self.read_screen_calls: list[tuple[int, int, int, int] | None] = []
         self.read_current_window_calls = 0
 
     def read_screen(self, bounding_box: tuple[int, int, int, int] | None = None):
         self.read_screen_calls.append(bounding_box)
+        if bounding_box:
+            # Simulate the real reader clamping the request to the screen.
+            bounding_box = (
+                max(self.SCREEN[0], bounding_box[0]),
+                max(self.SCREEN[1], bounding_box[1]),
+                min(self.SCREEN[2], bounding_box[2]),
+                min(self.SCREEN[3], bounding_box[3]),
+            )
         return _contents(
-            bounding_box or (0, 0, 100, 100),
+            bounding_box or self.SCREEN,
             [
                 _base.OcrWord("inside", left=15, top=15, width=2, height=2),
                 _base.OcrWord("outside", left=90, top=90, width=2, height=2),
@@ -100,6 +110,27 @@ def test_explicit_bounding_box_read_does_not_satisfy_unbounded_read():
     cache.read(None, EyeTrackerFallback.MAIN_SCREEN)
 
     assert reader.read_screen_calls == [(10, 20, 30, 40), None]
+
+
+def test_bounded_read_extending_offscreen_reuses_cache():
+    # Requests near the screen edge extend past it (e.g. padded gaze bounds).
+    # The reader clamps them, but the cache should still treat a subset of the
+    # previous request as a hit.
+    reader = FakeReader()
+    cache = _cache(reader)
+
+    cache.read(
+        BoundingBox(left=-50, top=-50, right=60, bottom=60),
+        EyeTrackerFallback.MAIN_SCREEN,
+    )
+    cropped = cache.read(
+        BoundingBox(left=-40, top=-40, right=50, bottom=50),
+        EyeTrackerFallback.MAIN_SCREEN,
+    )
+
+    assert reader.read_screen_calls == [(-50, -50, 60, 60)]
+    assert cropped.bounding_box == (-40, -40, 50, 50)
+    assert _word_texts(cropped) == ["inside"]
 
 
 def test_unbounded_cache_misses_when_fallback_mode_changes():

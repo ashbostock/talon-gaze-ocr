@@ -161,15 +161,20 @@ class OcrCache:
                 bounding_box.to_tuple()
             )
             self._last_unbounded_fallback = None
+            # The reader clamps the request to the screen, so the result covers
+            # everything visible within the requested bounds. Cache the requested
+            # bounds rather than the (possibly smaller) result bounds so that
+            # subset requests extending past the screen edge can reuse this read.
+            self._last_bounding_box = bounding_box
         else:
             if fallback_when_no_eye_tracker == EyeTrackerFallback.ACTIVE_WINDOW:
                 self._last_screen_contents = self.ocr_reader.read_current_window()
             else:
                 self._last_screen_contents = self.ocr_reader.read_screen()
             self._last_unbounded_fallback = fallback_when_no_eye_tracker
-        self._last_bounding_box = BoundingBox.from_tuple(
-            self._last_screen_contents.bounding_box
-        )
+            self._last_bounding_box = BoundingBox.from_tuple(
+                self._last_screen_contents.bounding_box
+            )
         return self._last_screen_contents
 
 
