@@ -852,7 +852,9 @@ def show_disambiguation():
     def on_draw(c):
         assert ambiguous_matches
         debug_color = get_debug_color(has_light_background(contents.screenshot))
-        nearest = gaze_ocr_controller.find_nearest_cursor_location(ambiguous_matches)
+        nearest = gaze_ocr_controller.find_nearest_cursor_location(
+            ambiguous_matches, contents
+        )
         used_locations = set()
         for i, match in enumerate(ambiguous_matches):
             if nearest == match:
