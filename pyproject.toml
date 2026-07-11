@@ -39,7 +39,7 @@ select = [
 ignore = ["E501", "SIM105", "SIM116", "UP045"]
 
 [tool.pytest.ini_options]
-testpaths = [".tests", ".subtrees/gaze-ocr/tests"]
+testpaths = [".tests"]
 
 [tool.pyright]
 typeCheckingMode = "standard"
