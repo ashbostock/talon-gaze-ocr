@@ -260,8 +260,9 @@ _OCR_MODIFIERS: dict[str, Callable[[], None]] = {
 def onscreen_ocr_text(phrase) -> str | list[str] | dict[str, str]:
     global gaze_ocr_controller, punctuation_table
     reset_state()
-    gaze_ocr_controller.read_nearby((phrase[0].start, phrase[-1].end))
-    selection_list = gaze_ocr_controller.latest_screen_contents().as_string()
+    selection_list = gaze_ocr_controller.read_nearby(
+        (phrase[0].start, phrase[-1].end)
+    ).as_string()
     # Split camel-casing.
     selection_list = re.sub(r"([a-z])([A-Z])", r"\1 \2", selection_list)
     # Make punctuation speakable.
