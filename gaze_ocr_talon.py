@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -457,7 +458,41 @@ def reload_backend(name, flags):
     )
 
 
+def _read_mouse_scroll_multiplier() -> int:
+    """Read the multiplier needed for Talon's direct mouse scroll action."""
+    if sys.platform != "darwin":
+        return 1
+
+    try:
+        result = subprocess.run(
+            [
+                "defaults",
+                "read",
+                "NSGlobalDomain",
+                "com.apple.swipescrolldirection",
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError:
+        return 1
+
+    if result.returncode != 0:
+        return 1
+
+    preference = result.stdout.strip().lower()
+    if preference in {"0", "false"}:
+        return -1
+    return 1
+
+
+mouse_scroll_multiplier = 1
+
+
 def on_ready():
+    global mouse_scroll_multiplier
+    mouse_scroll_multiplier = _read_mouse_scroll_multiplier()
     reload_backend(None, None)
     if homophones_file:
         fs.watch(str(homophones_file), reload_backend)
@@ -702,6 +737,7 @@ def perform_scroll_and_detect(
     """
     # Scroll direction: positive = down (content moves up), negative = up (content moves down)
     actual_scroll = scroll_amount if scroll_direction == "down" else -scroll_amount
+    actual_scroll *= mouse_scroll_multiplier
     actions.mouse_scroll(actual_scroll)
 
     # Wait for scroll animation to complete before capturing
