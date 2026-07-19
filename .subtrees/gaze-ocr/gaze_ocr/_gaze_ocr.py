@@ -18,6 +18,9 @@ from screen_ocr import Reader, ScreenContents, WordLocation
 
 T = TypeVar("T")
 
+_populated_cache_call_count = 0
+_populated_cache_miss_count = 0
+
 
 @dataclass
 class CursorLocation:
@@ -132,7 +135,10 @@ class OcrCache:
         bounding_box: Optional[BoundingBox],
         fallback_when_no_eye_tracker: EyeTrackerFallback,
     ):
+        global _populated_cache_call_count, _populated_cache_miss_count
+
         if self._last_screen_contents is not None:
+            _populated_cache_call_count += 1
             if (
                 bounding_box is None
                 and self._last_unbounded_fallback == fallback_when_no_eye_tracker
@@ -146,15 +152,22 @@ class OcrCache:
                 # Bounding box is a subset of the cached one. Crop and return without
                 # updating the cache so multiple subsets can reuse the same read.
                 return self._last_screen_contents.cropped(bounding_box.to_tuple())
+            _populated_cache_miss_count += 1
+            miss_percentage = (
+                100 * _populated_cache_miss_count / _populated_cache_call_count
+            )
             logging.warning(
                 "OCR cache miss with populated cache: requested_bounds=%r, "
-                "cached_bounds=%r, requested_fallback=%s, cached_fallback=%s",
+                "cached_bounds=%r, requested_fallback=%s, cached_fallback=%s; "
+                "misses=%.1f%% of %d calls",
                 bounding_box,
                 self._last_bounding_box,
                 fallback_when_no_eye_tracker.name,
                 self._last_unbounded_fallback.name
                 if self._last_unbounded_fallback is not None
                 else None,
+                miss_percentage,
+                _populated_cache_call_count,
             )
         if bounding_box:
             self._last_screen_contents = self.ocr_reader.read_screen(

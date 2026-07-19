@@ -6,6 +6,7 @@ from typing import cast
 import screen_ocr
 from screen_ocr import _base
 
+from gaze_ocr import _gaze_ocr
 from gaze_ocr._gaze_ocr import BoundingBox, Controller, EyeTrackerFallback, OcrCache
 
 
@@ -165,19 +166,42 @@ def test_cache_hit_does_not_warn(caplog):
     assert not caplog.records
 
 
-def test_populated_cache_miss_warns(caplog):
-    reader = FakeReader()
-    cache = _cache(reader)
-    cache.read(
+def test_populated_cache_miss_warns_with_process_lifetime_rate(caplog, monkeypatch):
+    monkeypatch.setattr(_gaze_ocr, "_populated_cache_call_count", 0)
+    monkeypatch.setattr(_gaze_ocr, "_populated_cache_miss_count", 0)
+
+    first_reader = FakeReader()
+    first_cache = _cache(first_reader)
+    first_cache.read(
+        BoundingBox(left=10, top=20, right=30, bottom=40),
+        EyeTrackerFallback.MAIN_SCREEN,
+    )
+    first_cache.read(
         BoundingBox(left=10, top=20, right=30, bottom=40),
         EyeTrackerFallback.MAIN_SCREEN,
     )
 
-    with caplog.at_level(logging.WARNING):
-        cache.read(None, EyeTrackerFallback.MAIN_SCREEN)
+    second_reader = FakeReader()
+    second_cache = _cache(second_reader)
+    second_cache.read(None, EyeTrackerFallback.MAIN_SCREEN)
 
-    assert len(caplog.records) == 1
-    assert "OCR cache miss with populated cache" in caplog.records[0].message
+    with caplog.at_level(logging.WARNING):
+        first_cache.read(None, EyeTrackerFallback.MAIN_SCREEN)
+        second_cache.read(None, EyeTrackerFallback.ACTIVE_WINDOW)
+
+    assert len(caplog.records) == 2
+    assert caplog.records[0].message == (
+        "OCR cache miss with populated cache: requested_bounds=None, "
+        "cached_bounds=BoundingBox(left=10, right=30, top=20, bottom=40), "
+        "requested_fallback=MAIN_SCREEN, cached_fallback=None; "
+        "misses=50.0% of 2 calls"
+    )
+    assert caplog.records[1].message == (
+        "OCR cache miss with populated cache: requested_bounds=None, "
+        "cached_bounds=BoundingBox(left=0, right=100, top=0, bottom=100), "
+        "requested_fallback=ACTIVE_WINDOW, cached_fallback=MAIN_SCREEN; "
+        "misses=66.7% of 3 calls"
+    )
 
 
 def test_controller_invalidation_forces_unbounded_lookup_to_reread():
