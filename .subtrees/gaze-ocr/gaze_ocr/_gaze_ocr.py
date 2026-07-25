@@ -828,10 +828,6 @@ class Controller:
         start_location.move_text_cursor()
         time.sleep(self._resolve_value(select_pause_seconds))
         if end_words:
-            if end_time_range or end_gaze_bounds:
-                self.read_nearby(time_range=end_time_range, gaze_bounds=end_gaze_bounds)
-            else:
-                screen_contents = self._read_nearby_if_gaze_moved(screen_contents)
 
             def filter_function(location):
                 return self._is_valid_selection(
