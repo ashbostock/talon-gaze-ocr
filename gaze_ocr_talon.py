@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -298,8 +299,9 @@ def onscreen_ocr_text(phrase) -> str | list[str] | dict[str, str]:
     global gaze_ocr_controller, punctuation_table
     reset_state()
     bounds = phrase_gaze_bounds(phrase)
-    gaze_ocr_controller.read_nearby(gaze_bounds=_to_gaze_bounds(bounds))
-    selection_list = gaze_ocr_controller.latest_screen_contents().as_string()
+    selection_list = gaze_ocr_controller.read_nearby(
+        gaze_bounds=_to_gaze_bounds(bounds)
+    ).as_string()
     # Split camel-casing.
     selection_list = re.sub(r"([a-z])([A-Z])", r"\1 \2", selection_list)
     # Make punctuation speakable.
@@ -460,7 +462,41 @@ def reload_backend(name, flags):
     )
 
 
+def _read_mouse_scroll_multiplier() -> int:
+    """Read the multiplier needed for Talon's direct mouse scroll action."""
+    if sys.platform != "darwin":
+        return 1
+
+    try:
+        result = subprocess.run(
+            [
+                "defaults",
+                "read",
+                "NSGlobalDomain",
+                "com.apple.swipescrolldirection",
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError:
+        return 1
+
+    if result.returncode != 0:
+        return 1
+
+    preference = result.stdout.strip().lower()
+    if preference in {"0", "false"}:
+        return -1
+    return 1
+
+
+mouse_scroll_multiplier = 1
+
+
 def on_ready():
+    global mouse_scroll_multiplier
+    mouse_scroll_multiplier = _read_mouse_scroll_multiplier()
     reload_backend(None, None)
     if homophones_file:
         fs.watch(str(homophones_file), reload_backend)
@@ -705,6 +741,7 @@ def perform_scroll_and_detect(
     """
     # Scroll direction: positive = down (content moves up), negative = up (content moves down)
     actual_scroll = scroll_amount if scroll_direction == "down" else -scroll_amount
+    actual_scroll *= mouse_scroll_multiplier
     actions.mouse_scroll(actual_scroll)
 
     # Wait for scroll animation to complete before capturing
@@ -804,17 +841,18 @@ def _clamp_rect_to_screen(r: rect.Rect) -> rect.Rect:
 
     Canvases that span multiple screens with different DPI/scale factors
     can disappear on macOS. This finds the best screen and clamps the rect
-    to stay within its bounds.
+    to stay within its bounds. If the rect overlaps no screen, returns it
+    unchanged since clamping would produce a degenerate rect.
     """
-    best_screen = max(
-        screen.screens(),
-        key=lambda s: (
-            max(0, min(r.x + r.width, s.rect.x + s.rect.width) - max(r.x, s.rect.x))
-            * max(0, min(r.y + r.height, s.rect.y + s.rect.height) - max(r.y, s.rect.y))
-        ),
-        default=None,
-    )
-    if best_screen is None:
+
+    def overlap_area(s) -> float:
+        return max(
+            0, min(r.x + r.width, s.rect.x + s.rect.width) - max(r.x, s.rect.x)
+        ) * max(0, min(r.y + r.height, s.rect.y + s.rect.height) - max(r.y, s.rect.y))
+
+    best_screen = max(screen.screens(), key=overlap_area, default=None)
+    if best_screen is None or overlap_area(best_screen) == 0:
+        logging.warning(f"Rect does not overlap any screen; not clamping: {r}")
         return r
     sr = best_screen.rect
     clamped = r.copy()
@@ -919,7 +957,9 @@ def show_disambiguation():
     def on_draw(c):
         assert ambiguous_matches
         debug_color = get_debug_color(has_light_background(contents.screenshot))
-        nearest = gaze_ocr_controller.find_nearest_cursor_location(ambiguous_matches)
+        nearest = gaze_ocr_controller.find_nearest_cursor_location(
+            ambiguous_matches, contents
+        )
         used_locations = set()
         for i, match in enumerate(ambiguous_matches):
             if nearest == match:
@@ -989,6 +1029,13 @@ def begin_generator(generator):
         pass
 
 
+def _raise_if_not_found(result, text: SeenText):
+    """If a controller generator found no match, show the OCR overlay and raise."""
+    if not result:
+        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
+        raise RuntimeError(f'Unable to find: "{text}"')
+
+
 def move_cursor_to_word_generator(text: SeenText, disambiguate: bool = True):
     result = yield from gaze_ocr_controller.move_cursor_to_words_generator(
         text.text,
@@ -996,9 +1043,7 @@ def move_cursor_to_word_generator(text: SeenText, disambiguate: bool = True):
         gaze_bounds=_to_gaze_bounds(text.gaze_bounds),
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def move_text_cursor_to_word_generator(
@@ -1014,9 +1059,7 @@ def move_text_cursor_to_word_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def move_text_cursor_to_longest_prefix_generator(
@@ -1033,9 +1076,7 @@ def move_text_cursor_to_longest_prefix_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not locations:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(locations, text)
     return prefix_length
 
 
@@ -1044,7 +1085,7 @@ def move_text_cursor_to_longest_suffix_generator(
 ):
     (
         locations,
-        prefix_length,
+        suffix_length,
     ) = yield from gaze_ocr_controller.move_text_cursor_to_longest_suffix_generator(
         text.text,
         disambiguate=True,
@@ -1053,10 +1094,8 @@ def move_text_cursor_to_longest_suffix_generator(
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         hold_shift=hold_shift,
     )
-    if not locations:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
-    return prefix_length
+    _raise_if_not_found(locations, text)
+    return suffix_length
 
 
 def move_text_cursor_to_difference(text: SeenText):
@@ -1066,9 +1105,7 @@ def move_text_cursor_to_difference(text: SeenText):
         gaze_bounds=_to_gaze_bounds(text.gaze_bounds),
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
     return result
 
 
@@ -1108,9 +1145,7 @@ def select_matching_text_generator(text: SeenText):
         click_offset_right=lambda: settings.get("user.ocr_click_offset_right"),
         select_pause_seconds=lambda: settings.get("user.ocr_select_pause_seconds"),
     )
-    if not result:
-        actions.user.show_ocr_overlay_for_query("text", f"{text.text}")
-        raise RuntimeError(f'Unable to find: "{text}"')
+    _raise_if_not_found(result, text)
 
 
 def select_text_range_generator(
@@ -1497,6 +1532,9 @@ class GazeOcrActions:
             assert not disambiguation_generator
             assert not disambiguation_canvas
             raise RuntimeError("Disambiguation not active")
+        if not 1 <= index <= len(ambiguous_matches):
+            app.notify(f"Invalid choice: {index}. Choose 1-{len(ambiguous_matches)}.")
+            return
         ctx.tags = []
         disambiguation_canvas.close()
         disambiguation_canvas = None
@@ -1912,7 +1950,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                print(e)
+                logging.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 
@@ -1929,7 +1967,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                print(e)
+                logging.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 

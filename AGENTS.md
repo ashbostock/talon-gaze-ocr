@@ -15,6 +15,10 @@ Tests are in `.tests/` with test data in `.tests/data/`. Run with:
 uv run pytest
 ```
 
+The top-level test suite does not run the tests embedded in `.subtrees/`. When
+files in a subtree are changed, also run `uv run pytest` from that subtree's
+directory.
+
 **Debug Tools:**
 
 Development tools are in `.tools/`. Run the scroll detection visualization tool with:
