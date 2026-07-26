@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from talon import Context, Module, actions, app, cron, ctrl, fs, screen, settings, ui
@@ -32,6 +32,8 @@ try:
     from talon.experimental import ocr
 except ImportError:
     ocr = None
+
+logger = logging.getLogger(__name__)
 
 # Adjust path to search adjacent package directories. Prefixed with dot to avoid
 # Talon running them itself. Append to search path so that faster binary
@@ -334,9 +336,9 @@ for path in glob.glob(str(user_dir / "**/homophones.csv"), recursive=True):
     homophones_file = path
     break
 if homophones_file:
-    logging.info(f"Found homophones file: {homophones_file}")
+    logger.info(f"Found homophones file: {homophones_file}")
 else:
-    logging.warning("Could not find homophones.csv. Is knausj_talon installed?")
+    logger.warning("Could not find homophones.csv. Is knausj_talon installed?")
 
 
 def get_knausj_homophones():
@@ -407,7 +409,7 @@ def reload_backend(name, flags):
         )
     else:
         if setting_ocr_use_talon_backend and not ocr:
-            logging.info("Talon OCR not available, will rely on external support.")
+            logger.info("Talon OCR not available, will rely on external support.")
         ocr_reader = screen_ocr.Reader.create_fast_reader(
             radius=settings.get("user.ocr_gaze_point_padding"),
             homophones=homophones,
@@ -698,7 +700,7 @@ def perform_scroll_and_detect(
     )
 
     if phase_name and (detection is None or detection.no_change):
-        logging.info(f"Scroll {phase_name}: detection failed")
+        logger.info(f"Scroll {phase_name}: detection failed")
 
     return ScrollResult(
         detection=detection,
@@ -770,7 +772,7 @@ def calculate_optimal_text_size(
 disambiguation_canvas = None
 debug_canvas = None
 scroll_indicator_canvas = None
-ambiguous_matches: Optional[Sequence[gaze_ocr.CursorLocation]] = None
+ambiguous_matches: Sequence[gaze_ocr.CursorLocation] | None = None
 disambiguation_generator = None
 app_scroll_cache = AppScrollCache()
 
@@ -791,7 +793,7 @@ def _clamp_rect_to_screen(r: rect.Rect) -> rect.Rect:
 
     best_screen = max(screen.screens(), key=overlap_area, default=None)
     if best_screen is None or overlap_area(best_screen) == 0:
-        logging.warning(f"Rect does not overlap any screen; not clamping: {r}")
+        logger.warning(f"Rect does not overlap any screen; not clamping: {r}")
         return r
     sr = best_screen.rect
     clamped = r.copy()
@@ -850,7 +852,7 @@ def _log_scroll_cache_decision(
     if not debug_mode or not cache_decision.cache_debug_reason:
         return
     cache_status = "hit" if cache_decision.use_cached_probe else "miss"
-    logging.info(
+    logger.info(
         f"Scroll cache {cache_status}: {cache_decision.cache_debug_reason}"
         f" (app={cache_key or 'none'}, cursor=({cursor_screen[0]:.1f}, {cursor_screen[1]:.1f}))"
     )
@@ -882,7 +884,7 @@ def reset_state():
 
 
 def show_disambiguation():
-    global ambiguous_matches, disambiguation_canvas
+    global disambiguation_canvas
 
     contents = gaze_ocr_controller.latest_screen_contents()
 
@@ -940,7 +942,6 @@ def show_disambiguation():
         current_canvas = disambiguation_canvas
 
         def timeout_disambiguation():
-            global disambiguation_canvas
             if disambiguation_canvas and disambiguation_canvas == current_canvas:
                 reset_state()
 
@@ -950,7 +951,7 @@ def show_disambiguation():
 
 
 def begin_generator(generator):
-    global ambiguous_matches, disambiguation_generator, disambiguation_canvas
+    global ambiguous_matches, disambiguation_generator
     reset_state()
     try:
         ambiguous_matches = next(generator)
@@ -1043,7 +1044,7 @@ def move_text_cursor_to_difference(text: TimestampedText):
 
 def select_text_generator(
     start: TimestampedText,
-    end: Optional[TimestampedText] = None,
+    end: TimestampedText | None = None,
     for_deletion: bool = False,
     after_start: bool = False,
     before_end: bool = False,
@@ -1129,7 +1130,7 @@ class GazeOcrActions:
             window = _window_at_point(x, y)
         except Exception:
             # No window at this position
-            logging.debug(f"No window at position ({x}, {y}); skipping focus.")
+            logger.debug(f"No window at position ({x}, {y}); skipping focus.")
             return
         finally:
             # Attempt to turn on HUD if talon_hud is installed.
@@ -1139,7 +1140,7 @@ class GazeOcrActions:
                 pass
 
         if window is None:
-            logging.debug(f"No window at position ({x}, {y}); skipping focus.")
+            logger.debug(f"No window at position ({x}, {y}); skipping focus.")
             return
 
         # Focus the window if not already active
@@ -1154,7 +1155,7 @@ class GazeOcrActions:
             start_time = time.perf_counter()
             while ui.active_window() != window:
                 if time.perf_counter() - start_time > 1:
-                    logging.warning(
+                    logger.warning(
                         f"Can't focus window: {window.title}. Proceeding anyway."
                     )
                     break
@@ -1177,7 +1178,7 @@ class GazeOcrActions:
     #
 
     def show_ocr_overlay(
-        type: str, near: Optional[TimestampedText] = None, refresh: bool = True
+        type: str, near: TimestampedText | None = None, refresh: bool = True
     ):
         """Displays OCR debug overlay over primary screen, refreshing the OCR nearby
         where the user is looking by default.
@@ -1450,7 +1451,7 @@ class GazeOcrActions:
 
     def choose_gaze_ocr_option(index: int):
         """Disambiguate with the provided index."""
-        global ambiguous_matches, disambiguation_generator, disambiguation_canvas
+        global ambiguous_matches, disambiguation_canvas
         if (
             not ambiguous_matches
             or not disambiguation_generator
@@ -1875,7 +1876,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                logging.warning(e)
+                logger.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 
@@ -1892,7 +1893,7 @@ class GazeOcrActions:
                 )
             except RuntimeError as e:
                 # Keep going so the user doesn't lose the dictated text.
-                logging.warning(e)
+                logger.warning(e)
             insertion_text = text.text
             context_sensitive_insert(insertion_text)
 
@@ -1945,11 +1946,11 @@ class MacGazeOcrActions:
             try:
                 element = ui.element_at(x, y)
             except RuntimeError:
-                logging.debug(f"No element at position ({x}, {y}); skipping focus.")
+                logger.debug(f"No element at position ({x}, {y}); skipping focus.")
                 return
 
             if not focus_element_window(element):
                 # This can happen when clicking on the desktop or menu bar.
-                logging.debug(
+                logger.debug(
                     f"Unable to focus window for element {element}; skipping focus."
                 )
