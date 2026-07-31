@@ -1,8 +1,9 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from talon import Module, actions, ui
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,7 +20,7 @@ class GazePoint:
     y: int
 
 
-def rect_to_pixel_bounding_box(rect) -> Optional[BoundingBox]:
+def rect_to_pixel_bounding_box(rect) -> BoundingBox | None:
     """Convert a normalized skia.Rect from actions.word.gaze_bounds into an
     absolute-pixel BoundingBox on the main screen."""
     if rect is None:
@@ -32,7 +33,7 @@ def rect_to_pixel_bounding_box(rect) -> Optional[BoundingBox]:
     return BoundingBox(left=left, right=right, top=top, bottom=bottom)
 
 
-def point_to_pixel_gaze(point) -> Optional[GazePoint]:
+def point_to_pixel_gaze(point) -> GazePoint | None:
     """Convert a normalized skia.Point from actions.word.gaze into an
     absolute-pixel GazePoint on the main screen."""
     if point is None:
@@ -49,14 +50,14 @@ mod = Module()
 @dataclass
 class SeenText:
     text: str
-    gaze_bounds: Optional[BoundingBox]
+    gaze_bounds: BoundingBox | None
 
 
 @dataclass
 class TextRange:
-    start: Optional[SeenText]
+    start: SeenText | None
     after_start: bool
-    end: Optional[SeenText]
+    end: SeenText | None
     before_end: bool
 
 
@@ -66,33 +67,33 @@ class TextPosition:
     position: str
 
 
-def _gaze_bounds_for(capture_or_meta, padding: float = 0.5) -> Optional[BoundingBox]:
+def _gaze_bounds_for(capture_or_meta, padding: float = 0.5) -> BoundingBox | None:
     """Resolve the gaze bounding box for a capture object or capture metadata."""
     if capture_or_meta is None:
         return None
     try:
         rect = actions.word.gaze_bounds(capture_or_meta, padding=padding)
     except Exception as error:
-        logging.debug("Unable to resolve gaze bounds: %r", error)
+        logger.debug("Unable to resolve gaze bounds: %r", error)
         return None
     return rect_to_pixel_bounding_box(rect)
 
 
-def _gaze_point_for(subcapture) -> Optional[GazePoint]:
+def _gaze_point_for(subcapture) -> GazePoint | None:
     """Resolve the gaze point for a capture or word subcapture."""
     if subcapture is None:
         return None
     try:
         point = actions.word.gaze(subcapture)
     except Exception as error:
-        logging.debug("Unable to resolve gaze point: %r", error)
+        logger.debug("Unable to resolve gaze point: %r", error)
         return None
     return point_to_pixel_gaze(point)
 
 
 def _merge_bounds(
-    bounds: list[Optional[BoundingBox]],
-) -> Optional[BoundingBox]:
+    bounds: list[BoundingBox | None],
+) -> BoundingBox | None:
     """Compute the union rectangle of a list of BoundingBoxes."""
     valid = [b for b in bounds if b is not None]
     if not valid:
@@ -105,19 +106,19 @@ def _merge_bounds(
     )
 
 
-def phrase_gaze_bounds(phrase) -> Optional[BoundingBox]:
+def phrase_gaze_bounds(phrase) -> BoundingBox | None:
     """Resolve merged gaze bounds for each item in a phrase-like iterable."""
     return _merge_bounds([_gaze_bounds_for(item) for item in phrase])
 
 
 @mod.capture(rule="scroll")
-def gaze_scroll_point(m) -> Optional[GazePoint]:
+def gaze_scroll_point(m) -> GazePoint | None:
     """Gaze point for unprefixed scroll commands."""
     return _gaze_point_for(m[0])
 
 
 @mod.capture(rule="eye | i")
-def eye_gaze_point(m) -> Optional[GazePoint]:
+def eye_gaze_point(m) -> GazePoint | None:
     """Gaze point for direct-gaze commands (e.g. "eye touch", "eye hover").
 
     Resolved at capture time so the trigger word's gaze metadata is

@@ -191,7 +191,7 @@ def detect_scroll_debug(img_before, img_after, cursor_pos, params=None):
     debug.grad_b = np.diff(gb, axis=0)
     debug.grad_a = np.diff(ga, axis=0)
 
-    H, W = gb.shape
+    H, _W = gb.shape
 
     # === Phase 1: Initial Viewport Estimation ===
     existing_viewport = params.get("existing_viewport")
@@ -467,8 +467,7 @@ def detect_scroll_debug(img_before, img_after, cursor_pos, params=None):
     # Cursor constraint: detected range must include part of cursor's scroll path [cy-d, cy]
     target_row_min = max(0, cy - d)
     target_row_max = min(cy, limit_h - 1)
-    if target_row_min > target_row_max:
-        target_row_min = target_row_max
+    target_row_min = min(target_row_min, target_row_max)
 
     row_weights = np.sum(weight_map_row, axis=1)
     debug.row_weights_phase3 = row_weights

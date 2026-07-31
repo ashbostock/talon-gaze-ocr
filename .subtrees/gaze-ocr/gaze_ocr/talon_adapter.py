@@ -1,7 +1,8 @@
 import logging
-from typing import Optional
 
 from talon import actions
+
+logger = logging.getLogger(__name__)
 
 
 class Mouse:
@@ -48,7 +49,7 @@ class AppActions:
         """Focus the window at the given coordinates."""
         actions.user.focus_at(x, y)
 
-    def peek_left(self) -> Optional[str]:
+    def peek_left(self) -> str | None:
         try:
             return actions.user.dictation_peek(True, False)[0]
         except KeyError:
@@ -56,10 +57,10 @@ class AppActions:
                 return actions.user.dictation_peek_left()
             # If action is unavailable (e.g. no knausj).
             except KeyError:
-                logging.warning("Action user.dictation_peek is unavailable.")
+                logger.warning("Action user.dictation_peek is unavailable.")
                 return None
 
-    def peek_right(self) -> Optional[str]:
+    def peek_right(self) -> str | None:
         try:
             return actions.user.dictation_peek(False, True)[1]
         except KeyError:
@@ -67,5 +68,5 @@ class AppActions:
                 return actions.user.dictation_peek_right()
             # If action is unavailable (e.g. no knausj).
             except KeyError:
-                logging.warning("Action user.dictation_peek is unavailable.")
+                logger.warning("Action user.dictation_peek is unavailable.")
                 return None

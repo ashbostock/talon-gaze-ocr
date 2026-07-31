@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+logger = logging.getLogger(__name__)
+
 # Module-level constants
 PIXEL_TOLERANCE = 20  # Max pixel difference to consider a match
 MIN_VIEWPORT_HEIGHT = 150  # Detected viewport must be at least this tall
@@ -186,7 +188,7 @@ def estimate_initial_viewport(
 
     # Validate cursor position
     if not (0 <= cx < W and 0 <= cy < H):
-        logging.debug(f"Initial viewport: cursor out of bounds ({cx}, {cy})")
+        logger.debug(f"Initial viewport: cursor out of bounds ({cx}, {cy})")
         return None
 
     # Step 1-2: Threshold precomputed diff to binary change map
@@ -203,7 +205,7 @@ def estimate_initial_viewport(
     r1, r2, r_score = get_best_1d_anchored(row_weights, cy)
 
     if r_score <= 0 or r1 > r2:
-        logging.debug(f"Initial viewport: no valid row range (score={r_score:.2f})")
+        logger.debug(f"Initial viewport: no valid row range (score={r_score:.2f})")
         return None
 
     # Step 6: Repeat for columns using found row range
@@ -212,7 +214,7 @@ def estimate_initial_viewport(
     active_cols = col_sums > 0
 
     if not np.any(active_cols):
-        logging.debug("Initial viewport: no changed pixels in row range")
+        logger.debug("Initial viewport: no changed pixels in row range")
         return None
 
     mean_col_activity = np.mean(col_sums[active_cols])
@@ -222,7 +224,7 @@ def estimate_initial_viewport(
     c1, c2, c_score = get_best_1d_anchored(col_weights, cx)
 
     if c_score <= 0 or c1 > c2:
-        logging.debug(f"Initial viewport: no valid column range (score={c_score:.2f})")
+        logger.debug(f"Initial viewport: no valid column range (score={c_score:.2f})")
         return None
 
     width = c2 - c1 + 1
@@ -276,7 +278,7 @@ def estimate_scroll_distance(
     # Constraint: overlap = h_grad - d >= MIN_OVERLAP_HEIGHT
     max_d = h_grad - MIN_OVERLAP_HEIGHT
     if max_d <= MIN_SCROLL_DISTANCE:
-        logging.debug(
+        logger.debug(
             "Viewport too small for minimum scroll distance with required overlap"
         )
         return None
@@ -353,7 +355,7 @@ def estimate_scroll_distance(
     # Only consider valid range [MIN_SCROLL_DISTANCE, max_d]
     valid_range = ncc[MIN_SCROLL_DISTANCE : max_d + 1]
     if len(valid_range) == 0 or np.max(valid_range) <= 0:
-        logging.debug("No positive correlation found")
+        logger.debug("No positive correlation found")
         return None
 
     best_d = int(np.argmax(valid_range) + MIN_SCROLL_DISTANCE)
@@ -424,7 +426,7 @@ def refine_viewport(
     # For scroll-up: After content at [d : H] corresponds to Before content at [0 : H-d]
     limit_h = H - d
     if limit_h <= 0:
-        logging.debug(f"Viewport refinement: invalid limit_h={limit_h}")
+        logger.debug(f"Viewport refinement: invalid limit_h={limit_h}")
         return None
 
     # Initial viewport column range (used for row refinement only)
@@ -456,8 +458,7 @@ def refine_viewport(
     # Cursor constraint: detected range must include part of cursor's scroll path [cy-d, cy]
     target_row_min = max(0, cy - d)
     target_row_max = min(cy, limit_h - 1)
-    if target_row_min > target_row_max:
-        target_row_min = target_row_max
+    target_row_min = min(target_row_min, target_row_max)
 
     row_weights = np.sum(weight_map_row, axis=1)
     r1, r2, row_score = get_best_1d_range_constrained(
@@ -465,9 +466,7 @@ def refine_viewport(
     )
 
     if row_score <= 0:
-        logging.debug(
-            f"Viewport refinement: no valid row range (score={row_score:.2f})"
-        )
+        logger.debug(f"Viewport refinement: no valid row range (score={row_score:.2f})")
         return None
 
     # --- Column refinement: use full image width with refined rows ---
@@ -489,7 +488,7 @@ def refine_viewport(
     c1, c2, col_score = get_best_1d_anchored(col_weights, cx)
 
     if col_score <= 0:
-        logging.debug(
+        logger.debug(
             f"Viewport refinement: no valid column range (score={col_score:.2f})"
         )
         return None
@@ -530,7 +529,7 @@ def _validate_viewport_size(viewport: tuple[int, int, int, int], context: str) -
     """Check if viewport meets minimum size requirements."""
     _, _, w, h = viewport
     if h < MIN_VIEWPORT_HEIGHT or w < MIN_VIEWPORT_WIDTH:
-        logging.info(
+        logger.info(
             f"Scroll detection failed: {context} viewport too small "
             f"(detected: {w}x{h}, required: {MIN_VIEWPORT_WIDTH}x{MIN_VIEWPORT_HEIGHT})"
         )
@@ -601,7 +600,7 @@ def detect_scroll(
         # Estimate initial viewport by finding changed pixels
         viewport = estimate_initial_viewport((cx, cy), same_pos_diff)
         if viewport is None:
-            logging.info("Scroll detection failed: Could not estimate initial viewport")
+            logger.info("Scroll detection failed: Could not estimate initial viewport")
             return None
 
     # Validate viewport size
@@ -611,12 +610,12 @@ def detect_scroll(
     # --- Phase 2: Scroll Distance Estimation ---
     scroll_distance = estimate_scroll_distance(gb, ga, viewport, scroll_direction)
     if scroll_distance is None:
-        logging.info("Scroll detection failed: Could not estimate scroll distance")
+        logger.info("Scroll detection failed: Could not estimate scroll distance")
         return None
 
     # Validate scroll distance against image bounds
     if scroll_distance >= H - MIN_VIEWPORT_HEIGHT:
-        logging.info(
+        logger.info(
             f"Scroll detection failed: Scroll distance too large "
             f"(d={scroll_distance}, max={H - MIN_VIEWPORT_HEIGHT})"
         )
@@ -631,7 +630,7 @@ def detect_scroll(
         x, y, w, h = viewport
         h_overlap = h - scroll_distance
         if h_overlap <= 0:
-            logging.info(
+            logger.info(
                 f"Scroll detection failed: Invalid overlap height ({h_overlap})"
             )
             return None
@@ -651,7 +650,7 @@ def detect_scroll(
             scroll_direction=scroll_direction,
         )
         if result is None:
-            logging.info("Scroll detection failed: Could not refine viewport")
+            logger.info("Scroll detection failed: Could not refine viewport")
             return None
         refined_viewport, after_bbox = result
 
