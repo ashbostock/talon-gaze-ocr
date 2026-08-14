@@ -99,7 +99,7 @@ mod.setting(
 mod.setting(
     "ocr_connect_tracker",
     type=bool,
-    default=False,
+    default=True,
     desc="If true, automatically connect the eye tracker at startup.",
 )
 mod.setting(
@@ -171,7 +171,7 @@ mod.setting(
 mod.setting(
     "ocr_behavior_when_no_eye_tracker",
     type=Literal["MAIN_SCREEN", "ACTIVE_WINDOW"],
-    default="ACTIVE_WINDOW",
+    default="MAIN_SCREEN",
     desc="Region to OCR when no data from the eye tracker",
 )
 mod.setting(
