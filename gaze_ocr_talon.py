@@ -230,6 +230,10 @@ mod.setting(
 )
 
 mod.tag(
+    "gaze_ocr_commands_disabled",
+    desc="Tag to disable gaze ocr spoken commands."
+)
+mod.tag(
     "gaze_ocr_disambiguation",
     desc="Tag for disambiguating between different onscreen matches.",
 )
